@@ -1,0 +1,653 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>메가커피 키오스크 실습</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700;900&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Noto Sans KR', sans-serif;
+            user-select: none; /* 드래그 방지 */
+            -webkit-user-select: none;
+            overflow: hidden; /* 화면 스크롤 방지 (앱처럼 보이게) */
+            background-color: #f3f4f6;
+            height: 100dvh; /* 모바일 하단바 잘림 방지 (동적 뷰포트) */
+            margin: 0;
+        }
+        /* 스크롤바 숨기기 */
+        ::-webkit-scrollbar {
+            width: 0px;
+            background: transparent;
+        }
+        .mega-yellow { background-color: #FBE800; }
+        .mega-yellow-text { color: #FBE800; }
+        .mega-brown { background-color: #3E2B23; }
+        .mega-brown-text { color: #3E2B23; }
+        
+        /* 터치 효과 */
+        .touch-active:active {
+            transform: scale(0.98);
+            opacity: 0.9;
+        }
+
+        /* 팝업 애니메이션 */
+        @keyframes popIn {
+            from { transform: scale(0.8); opacity: 0; }
+            to { transform: scale(1); opacity: 1; }
+        }
+        .animate-pop {
+            animation: popIn 0.3s ease-out forwards;
+        }
+    </style>
+</head>
+<body class="w-screen flex justify-center items-center">
+
+    <div id="app" class="w-full h-full max-w-md bg-white relative shadow-2xl flex flex-col overflow-hidden">
+        <!-- 화면이 여기에 동적으로 렌더링 됩니다 -->
+    </div>
+
+    <script>
+        // 상태 관리
+        let state = {
+            screen: 'start', // start, menu, option, payment_method, processing, complete
+            orderType: '', // 'eat-in' (먹고가기), 'take-out' (포장하기)
+            cart: [],
+            orderNumber: 100
+        };
+
+        // 선택된 메뉴 옵션 상태
+        let selectedItem = null;
+        let currentOptions = { temp: 'HOT', size: 'REGULAR', shot: 0, whip: 'NONE' };
+
+        // 이미지 생성 헬퍼 함수 (외부 링크 대신 안전한 내장 이미지 생성)
+        function getImgUri(bg, fg, emoji, text) {
+            const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="200" height="200" viewBox="0 0 200 200"><rect width="200" height="200" fill="${bg}"/><text x="100" y="85" font-size="70" text-anchor="middle" dominant-baseline="middle">${emoji}</text><text x="100" y="160" font-size="26" fill="${fg}" text-anchor="middle" font-family="sans-serif" font-weight="bold">${text}</text></svg>`;
+            return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
+        }
+
+        // 메뉴 데이터 (초코라떼 등 메뉴 추가 및 옵션 항목 설정)
+        const menuData = {
+            '커피': [
+                { id: 1, name: '아메리카노', price: 1500, img: getImgUri('#4a3525', '#ffffff', '☕', '아메리카노'), hasTemp: true, hasSize: true, hasShot: true },
+                { id: 2, name: '카페라떼', price: 2900, img: getImgUri('#c89f7d', '#ffffff', '🥛', '카페라떼'), hasTemp: true, hasSize: true, hasShot: true },
+                { id: 3, name: '바닐라라떼', price: 3400, img: getImgUri('#d4a373', '#ffffff', '🌼', '바닐라라떼'), hasTemp: true, hasSize: true, hasShot: true },
+                { id: 4, name: '달달한 믹스커피', price: 2500, img: getImgUri('#e6b88a', '#000000', '☕', '믹스커피'), hasTemp: true, hasSize: true, hasShot: true },
+            ],
+            '음료': [
+                { id: 5, name: '초코라떼', price: 3500, img: getImgUri('#3e2723', '#ffffff', '🍫', '초코라떼'), hasTemp: true, hasSize: true, hasShot: false, hasWhip: true },
+                { id: 6, name: '녹차라떼', price: 3500, img: getImgUri('#4caf50', '#ffffff', '🍵', '녹차라떼'), hasTemp: true, hasSize: true, hasShot: false },
+                { id: 7, name: '딸기 주스', price: 3800, img: getImgUri('#f87171', '#ffffff', '🍓', '딸기주스'), hasTemp: false, fixedTemp: 'ICED', hasSize: true, hasShot: false },
+                { id: 8, name: '고구마라떼', price: 3500, img: getImgUri('#9c27b0', '#ffffff', '🍠', '고구마라떼'), hasTemp: true, hasSize: true, hasShot: false },
+            ],
+            '건강차(Tea)': [
+                { id: 9, name: '따뜻한 쌍화차', price: 3500, img: getImgUri('#2c1e16', '#ffffff', '🫖', '쌍화차'), hasTemp: false, fixedTemp: 'HOT', hasSize: false, hasShot: false },
+                { id: 10, name: '달콤한 유자차', price: 3000, img: getImgUri('#facc15', '#000000', '🍋', '유자차'), hasTemp: true, hasSize: false, hasShot: false },
+                { id: 11, name: '복숭아 아이스티', price: 3000, img: getImgUri('#ff9800', '#ffffff', '🍑', '아이스티'), hasTemp: false, fixedTemp: 'ICED', hasSize: true, hasShot: true },
+                { id: 14, name: '히비스커스', price: 2500, img: getImgUri('#e11d48', '#ffffff', '🌺', '히비스커스'), hasTemp: true, hasSize: true, hasShot: false },
+                { id: 15, name: '캐모마일', price: 2500, img: getImgUri('#fde047', '#000000', '🌼', '캐모마일'), hasTemp: true, hasSize: true, hasShot: false },
+                { id: 16, name: '페퍼민트', price: 2500, img: getImgUri('#86efac', '#000000', '🌿', '페퍼민트'), hasTemp: true, hasSize: true, hasShot: false },
+            ],
+            '디저트': [
+                { id: 12, name: '부드러운 조각케익', price: 4500, img: getImgUri('#fbcfe8', '#000000', '🍰', '조각케익'), hasTemp: false, hasSize: false, hasShot: false },
+                { id: 13, name: '단팥빵', price: 2000, img: getImgUri('#92400e', '#ffffff', '🥯', '단팥빵'), hasTemp: false, hasSize: false, hasShot: false },
+                { id: 17, name: '사라다빵', price: 3500, img: getImgUri('#fef08a', '#000000', '🥪', '사라다빵'), hasTemp: false, hasSize: false, hasShot: false },
+                { id: 18, name: '크로크무슈', price: 3800, img: getImgUri('#fde68a', '#000000', '🍞', '크로크무슈'), hasTemp: false, hasSize: false, hasShot: false },
+                { id: 19, name: '허니브레드', price: 4500, img: getImgUri('#ea580c', '#ffffff', '🍯', '허니브레드'), hasTemp: false, hasSize: false, hasShot: false },
+                { id: 20, name: '춘천 감자빵', price: 3500, img: getImgUri('#a16207', '#ffffff', '🥔', '감자빵'), hasTemp: false, hasSize: false, hasShot: false },
+            ]
+        };
+
+        let currentCategory = '커피';
+        const appContainer = document.getElementById('app');
+
+        // 강사님 알림용 소리 생성 (Web Audio API)
+        function playAlertSound() {
+            try {
+                const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                const oscillator = audioCtx.createOscillator();
+                const gainNode = audioCtx.createGain();
+                
+                oscillator.type = 'sine';
+                oscillator.frequency.setValueAtTime(880, audioCtx.currentTime); // A5 음정
+                oscillator.frequency.exponentialRampToValueAtTime(440, audioCtx.currentTime + 0.5);
+                
+                gainNode.gain.setValueAtTime(1, audioCtx.currentTime);
+                gainNode.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.5);
+                
+                oscillator.connect(gainNode);
+                gainNode.connect(audioCtx.destination);
+                
+                oscillator.start();
+                oscillator.stop(audioCtx.currentTime + 0.5);
+            } catch(e) {
+                console.log("Audio not supported");
+            }
+        }
+
+        // 브라우저 푸시 알림 요청 및 전송
+        function requestNotificationPermission() {
+            if ("Notification" in window) {
+                Notification.requestPermission();
+            }
+        }
+
+        function sendInstructorNotification() {
+            playAlertSound();
+            if ("Notification" in window && Notification.permission === "granted") {
+                new Notification("키오스크 실습 알림", {
+                    body: `어르신이 주문을 성공적으로 마쳤습니다! (주문번호: ${state.orderNumber})`,
+                    icon: "https://placehold.co/100x100/FBE800/000?text=완료"
+                });
+            }
+        }
+
+        function formatPrice(price) {
+            return price.toLocaleString() + '원';
+        }
+
+        function getTotalPrice() {
+            return state.cart.reduce((sum, item) => sum + (item.price * item.quantity), 0);
+        }
+
+        function getTotalCount() {
+            return state.cart.reduce((sum, item) => sum + item.quantity, 0);
+        }
+
+        function changeScreen(newScreen) {
+            state.screen = newScreen;
+            render();
+        }
+
+        function resetApp() {
+            state.cart = [];
+            state.orderType = '';
+            currentCategory = '커피';
+            changeScreen('start');
+        }
+
+        // 옵션 선택 화면 열기
+        function openOptionScreen(item) {
+            selectedItem = item;
+            
+            // 옵션이 전혀 없는 상품(디저트 등)은 바로 장바구니로 담기
+            if (!item.hasTemp && !item.hasSize && !item.hasShot && !item.fixedTemp && !item.hasWhip) {
+                addToCartDirectly(item);
+                return;
+            }
+
+            // 기본 옵션 초기화
+            currentOptions = {
+                temp: item.fixedTemp ? item.fixedTemp : 'HOT',
+                size: 'REGULAR',
+                shot: 0,
+                whip: 'NONE'
+            };
+            changeScreen('option');
+        }
+
+        // 개별 옵션 변경 함수
+        function setOption(key, value) {
+            currentOptions[key] = value;
+            render();
+        }
+
+        // 샷 추가/감소 함수
+        function setShotOption(delta) {
+            let newShot = currentOptions.shot + delta;
+            if (newShot >= 0 && newShot <= 4) {
+                currentOptions.shot = newShot;
+                render();
+            }
+        }
+
+        // 선택된 옵션을 장바구니에 담기
+        function confirmOptions() {
+            let finalPrice = selectedItem.price;
+            let optionTexts = [];
+            
+            if (selectedItem.hasTemp || selectedItem.fixedTemp) {
+                if (currentOptions.temp === 'HOT') optionTexts.push('HOT');
+                if (currentOptions.temp === 'ICED') optionTexts.push('ICED');
+            }
+            
+            if (selectedItem.hasSize && currentOptions.size === 'MEGA') {
+                finalPrice += 1000;
+                optionTexts.push('메가사이즈(+1,000)');
+            }
+            
+            if (selectedItem.hasShot && currentOptions.shot > 0) {
+                finalPrice += (currentOptions.shot * 500);
+                optionTexts.push(`샷추가 ${currentOptions.shot}번(+${currentOptions.shot * 500})`);
+            }
+
+            if (selectedItem.hasWhip && currentOptions.whip === 'ADD') {
+                optionTexts.push('휘핑추가(무료)');
+            }
+
+            const optionsString = optionTexts.join(' / ');
+            const cartItemId = Date.now() + Math.random(); // 장바구니 고유 ID 생성
+
+            // 완전히 동일한 옵션 구성의 상품이 있는지 확인
+            const existingItemIndex = state.cart.findIndex(
+                cartItem => cartItem.id === selectedItem.id && cartItem.options === optionsString
+            );
+
+            if (existingItemIndex > -1) {
+                state.cart[existingItemIndex].quantity += 1;
+            } else {
+                state.cart.push({ 
+                    cartItemId: cartItemId,
+                    id: selectedItem.id,
+                    name: selectedItem.name,
+                    price: finalPrice,
+                    options: optionsString,
+                    quantity: 1 
+                });
+            }
+            changeScreen('menu');
+        }
+
+        // 옵션 없는 상품을 바로 담는 함수
+        function addToCartDirectly(item) {
+            const existingItemIndex = state.cart.findIndex(cartItem => cartItem.id === item.id && !cartItem.options);
+            if (existingItemIndex > -1) {
+                state.cart[existingItemIndex].quantity += 1;
+            } else {
+                state.cart.push({ 
+                    cartItemId: Date.now() + Math.random(),
+                    id: item.id,
+                    name: item.name,
+                    price: item.price,
+                    options: '',
+                    quantity: 1 
+                });
+            }
+            changeScreen('menu');
+        }
+
+        // 장바구니 수량 변경
+        function updateQuantity(cartItemId, delta) {
+            const itemIndex = state.cart.findIndex(item => item.cartItemId === cartItemId);
+            if (itemIndex > -1) {
+                state.cart[itemIndex].quantity += delta;
+                if (state.cart[itemIndex].quantity <= 0) {
+                    state.cart.splice(itemIndex, 1);
+                }
+            }
+            render();
+        }
+
+        function clearCart() {
+            state.cart = [];
+            render();
+        }
+
+        function renderStartScreen() {
+            appContainer.innerHTML = `
+                <div class="flex-1 flex flex-col items-center justify-center mega-yellow p-6 text-center h-full">
+                    <h1 class="text-4xl font-black mega-brown-text mb-2">MEGA COFFEE</h1>
+                    <h2 class="text-2xl font-bold mega-brown-text mb-12">키오스크 실습하기</h2>
+                    
+                    <p class="text-xl font-bold text-gray-800 mb-6 bg-white px-6 py-3 rounded-full shadow-md animate-bounce">
+                        어디서 드실 건가요? <br>아래 버튼을 눌러주세요!
+                    </p>
+
+                    <div class="flex flex-col w-full gap-4 mt-6 flex-shrink-0">
+                        <button onclick="state.orderType='eat-in'; requestNotificationPermission(); changeScreen('menu')" 
+                                class="touch-active bg-white mega-brown-text text-2xl font-black py-8 rounded-3xl shadow-xl border-4 border-white hover:border-gray-300 flex flex-col items-center justify-center gap-3">
+                            <span class="text-5xl">🍽️</span>
+                            매장에서 먹고가기
+                        </button>
+                        
+                        <button onclick="state.orderType='take-out'; requestNotificationPermission(); changeScreen('menu')" 
+                                class="touch-active mega-brown text-white text-2xl font-black py-8 rounded-3xl shadow-xl flex flex-col items-center justify-center gap-3">
+                            <span class="text-5xl">🛍️</span>
+                            포장해서 가져가기
+                        </button>
+                    </div>
+                </div>
+            `;
+        }
+
+        function renderMenuScreen() {
+            // 카테고리 탭 생성
+            const categories = Object.keys(menuData);
+            const tabsHTML = categories.map(cat => `
+                <button onclick="currentCategory='${cat}'; render();" 
+                        class="flex-1 py-4 text-xl font-bold border-b-4 ${currentCategory === cat ? 'border-yellow-400 mega-brown-text bg-yellow-50' : 'border-transparent text-gray-500 bg-white'} transition-colors">
+                    ${cat}
+                </button>
+            `).join('');
+
+            // 메뉴 리스트 생성 (클릭 시 openOptionScreen 호출)
+            const itemsHTML = menuData[currentCategory].map(item => `
+                <div onclick='openOptionScreen(${JSON.stringify(item)})' 
+                     class="touch-active bg-white p-3 rounded-2xl shadow-md flex flex-col items-center border-2 border-gray-100 hover:border-yellow-400 relative">
+                    ${item.fixedTemp === 'ICED' ? '<span class="absolute top-2 right-2 bg-blue-500 text-white text-xs font-bold px-2 py-1 rounded-full z-10 shadow">ICED</span>' : ''}
+                    <img src="${item.img}" alt="${item.name}" class="w-full h-32 object-cover rounded-xl mb-3">
+                    <div class="text-lg font-bold text-gray-800 text-center leading-tight h-10 flex items-center justify-center mb-1">${item.name}</div>
+                    <div class="text-xl font-black text-red-600">${formatPrice(item.price)}</div>
+                </div>
+            `).join('');
+
+            // 장바구니 리스트 생성 (옵션 내역 함께 표시)
+            const cartHTML = state.cart.length === 0 
+                ? `<div class="text-center text-gray-500 py-4 font-bold text-lg">선택된 상품이 없습니다.<br>위에서 상품을 눌러주세요.</div>`
+                : state.cart.map(item => `
+                    <div class="flex justify-between items-center bg-gray-50 p-2 rounded-lg mb-2">
+                        <div class="flex-1 pr-2 overflow-hidden">
+                            <div class="font-bold text-gray-800 text-lg truncate">${item.name}</div>
+                            ${item.options ? `<div class="text-sm font-bold text-blue-600 truncate">${item.options}</div>` : ''}
+                        </div>
+                        <div class="flex flex-col items-end gap-1">
+                            <div class="font-black text-red-600">${formatPrice(item.price * item.quantity)}</div>
+                            <div class="flex items-center gap-2 mt-1">
+                                <button onclick="updateQuantity(${item.cartItemId}, -1)" class="w-8 h-8 bg-white border-2 border-gray-300 rounded-full text-xl font-bold flex items-center justify-center text-gray-600 touch-active">-</button>
+                                <span class="text-lg font-bold w-6 text-center">${item.quantity}</span>
+                                <button onclick="updateQuantity(${item.cartItemId}, 1)" class="w-8 h-8 bg-white border-2 border-gray-300 rounded-full text-xl font-bold flex items-center justify-center text-gray-600 touch-active">+</button>
+                            </div>
+                        </div>
+                    </div>
+                `).join('');
+
+            appContainer.innerHTML = `
+                <!-- 상단 헤더 -->
+                <div class="mega-brown text-white p-4 flex justify-between items-center shadow-md z-10">
+                    <div class="font-black text-xl mega-yellow-text">MEGA COFFEE</div>
+                    <button onclick="resetApp()" class="bg-white mega-brown-text px-4 py-2 rounded-full font-bold touch-active">처음으로</button>
+                </div>
+
+                <!-- 카테고리 탭 -->
+                <div class="flex bg-white shadow-sm z-10">
+                    ${tabsHTML}
+                </div>
+
+                <!-- 메뉴 그리드 -->
+                <div class="flex-1 overflow-y-auto p-4 bg-gray-100">
+                    <div class="grid grid-cols-2 gap-4">
+                        ${itemsHTML}
+                    </div>
+                    <div class="h-8"></div> <!-- 여백 -->
+                </div>
+
+                <!-- 하단 장바구니 및 결제 바 -->
+                <div class="bg-white shadow-[0_-5px_15px_rgba(0,0,0,0.1)] flex flex-col z-20 h-[38%] min-h-[220px]">
+                    <div class="p-3 flex-1 overflow-y-auto border-b-2 border-gray-100">
+                        <div class="flex justify-between items-center mb-2">
+                            <h3 class="font-black text-xl text-gray-800">주문내역</h3>
+                            ${state.cart.length > 0 ? `<button onclick="clearCart()" class="text-sm font-bold text-gray-500 border border-gray-300 px-3 py-1 rounded-full touch-active">전체취소</button>` : ''}
+                        </div>
+                        ${cartHTML}
+                    </div>
+                    
+                    <div class="p-3 bg-gray-50 flex-shrink-0">
+                        <div class="flex justify-between items-center mb-3">
+                            <span class="text-lg font-bold text-gray-600">총 수량: <span class="text-red-600">${getTotalCount()}개</span></span>
+                            <span class="text-xl font-black text-gray-800">총 결제금액: <span class="text-red-600 text-2xl">${formatPrice(getTotalPrice())}</span></span>
+                        </div>
+                        
+                        <button onclick="if(state.cart.length > 0) changeScreen('payment_method')" 
+                                class="${state.cart.length > 0 ? 'mega-yellow mega-brown-text touch-active' : 'bg-gray-300 text-gray-500'} w-full py-4 rounded-2xl text-xl font-black shadow-lg flex justify-center items-center gap-2 transition-colors">
+                            결제하기 (다음단계)
+                        </button>
+                    </div>
+                </div>
+            `;
+        }
+
+        function renderOptionScreen() {
+            // 온도 선택 옵션
+            let tempHTML = '';
+            if (selectedItem.hasTemp) {
+                tempHTML = `
+                    <div class="mb-6 bg-white p-4 rounded-2xl shadow-sm border border-gray-100">
+                        <h3 class="text-xl font-black text-gray-800 mb-4">뜨겁게 / 차갑게 <span class="text-red-500 text-base font-bold">(필수)</span></h3>
+                        <div class="flex gap-4">
+                            <button onclick="setOption('temp', 'HOT')" class="flex-1 py-5 text-2xl font-black rounded-2xl border-4 ${currentOptions.temp === 'HOT' ? 'border-red-500 bg-red-50 text-red-600' : 'border-gray-200 bg-white text-gray-400'} touch-active transition-all">
+                                뜨겁게<br>(HOT)
+                            </button>
+                            <button onclick="setOption('temp', 'ICED')" class="flex-1 py-5 text-2xl font-black rounded-2xl border-4 ${currentOptions.temp === 'ICED' ? 'border-blue-500 bg-blue-50 text-blue-600' : 'border-gray-200 bg-white text-gray-400'} touch-active transition-all">
+                                차갑게<br>(ICED)
+                            </button>
+                        </div>
+                    </div>
+                `;
+            } else if (selectedItem.fixedTemp === 'ICED') {
+                 tempHTML = `
+                    <div class="mb-6 bg-white p-4 rounded-2xl shadow-sm border border-gray-100">
+                        <h3 class="text-xl font-black text-gray-800 mb-4">온도</h3>
+                        <div class="p-4 bg-blue-50 border-2 border-blue-200 rounded-2xl text-xl font-bold text-blue-600 text-center">
+                            🧊 차갑게(ICED)만 가능한 음료입니다.
+                        </div>
+                    </div>
+                `;
+            } else if (selectedItem.fixedTemp === 'HOT') {
+                 tempHTML = `
+                    <div class="mb-6 bg-white p-4 rounded-2xl shadow-sm border border-gray-100">
+                        <h3 class="text-xl font-black text-gray-800 mb-4">온도</h3>
+                        <div class="p-4 bg-red-50 border-2 border-red-200 rounded-2xl text-xl font-bold text-red-600 text-center">
+                            ♨️ 뜨겁게(HOT)만 가능한 음료입니다.
+                        </div>
+                    </div>
+                `;
+            }
+
+            // 사이즈 선택 옵션
+            let sizeHTML = '';
+            if (selectedItem.hasSize) {
+                sizeHTML = `
+                    <div class="mb-6 bg-white p-4 rounded-2xl shadow-sm border border-gray-100">
+                        <h3 class="text-xl font-black text-gray-800 mb-4">크기 선택 <span class="text-gray-500 text-base font-bold">(선택)</span></h3>
+                        <div class="flex gap-4">
+                            <button onclick="setOption('size', 'REGULAR')" class="flex-1 py-4 text-xl font-bold rounded-2xl border-4 ${currentOptions.size === 'REGULAR' ? 'border-yellow-400 bg-yellow-50 mega-brown-text' : 'border-gray-200 bg-white text-gray-500'} touch-active transition-all">
+                                기본 크기<br><span class="text-gray-500 text-sm">(+0원)</span>
+                            </button>
+                            <button onclick="setOption('size', 'MEGA')" class="flex-1 py-4 text-xl font-bold rounded-2xl border-4 ${currentOptions.size === 'MEGA' ? 'border-yellow-400 bg-yellow-50 mega-brown-text' : 'border-gray-200 bg-white text-gray-500'} touch-active transition-all">
+                                메가 크기<br><span class="text-red-500 text-sm">(+1,000원)</span>
+                            </button>
+                        </div>
+                    </div>
+                `;
+            }
+
+            // 샷 추가 옵션
+            let shotHTML = '';
+            if (selectedItem.hasShot) {
+                shotHTML = `
+                    <div class="mb-6 bg-white p-4 rounded-2xl shadow-sm border border-gray-100">
+                        <h3 class="text-xl font-black text-gray-800 mb-4">커피 농도 <span class="text-gray-500 text-base font-bold">(선택)</span></h3>
+                        <div class="flex items-center justify-between p-2 rounded-2xl">
+                            <div>
+                                <span class="text-xl font-bold text-gray-800 block">샷 추가</span>
+                                <span class="text-sm font-bold text-red-500">+500원 / 1샷</span>
+                            </div>
+                            <div class="flex items-center gap-5">
+                                <button onclick="setShotOption(-1)" class="w-14 h-14 bg-white border-2 border-gray-300 shadow-sm rounded-full text-3xl font-bold touch-active flex items-center justify-center text-gray-600">-</button>
+                                <span class="text-3xl font-black w-6 text-center mega-brown-text">${currentOptions.shot}</span>
+                                <button onclick="setShotOption(1)" class="w-14 h-14 bg-white border-2 border-gray-300 shadow-sm rounded-full text-3xl font-bold touch-active flex items-center justify-center text-gray-600">+</button>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }
+
+            // 휘핑 추가 옵션
+            let whipHTML = '';
+            if (selectedItem.hasWhip) {
+                whipHTML = `
+                    <div class="mb-6 bg-white p-4 rounded-2xl shadow-sm border border-gray-100">
+                        <h3 class="text-xl font-black text-gray-800 mb-4">휘핑크림 <span class="text-gray-500 text-base font-bold">(선택)</span></h3>
+                        <div class="flex gap-4">
+                            <button onclick="setOption('whip', 'NONE')" class="flex-1 py-4 text-xl font-bold rounded-2xl border-4 ${currentOptions.whip === 'NONE' ? 'border-yellow-400 bg-yellow-50 mega-brown-text' : 'border-gray-200 bg-white text-gray-500'} touch-active transition-all">
+                                선택안함<br><span class="text-gray-500 text-sm">(기본)</span>
+                            </button>
+                            <button onclick="setOption('whip', 'ADD')" class="flex-1 py-4 text-xl font-bold rounded-2xl border-4 ${currentOptions.whip === 'ADD' ? 'border-yellow-400 bg-yellow-50 mega-brown-text' : 'border-gray-200 bg-white text-gray-500'} touch-active transition-all">
+                                휘핑추가<br><span class="text-red-500 text-sm">(무료)</span>
+                            </button>
+                        </div>
+                    </div>
+                `;
+            }
+
+            // 예상 가격 계산
+            let tempPrice = selectedItem.price;
+            if (currentOptions.size === 'MEGA') tempPrice += 1000;
+            if (currentOptions.shot > 0) tempPrice += (currentOptions.shot * 500);
+
+            appContainer.innerHTML = `
+                <!-- 상단 헤더 -->
+                <div class="mega-brown text-white p-4 flex justify-between items-center shadow-md z-10">
+                    <div class="font-black text-xl mega-yellow-text">옵션 선택하기</div>
+                    <button onclick="changeScreen('menu')" class="bg-white mega-brown-text px-4 py-2 rounded-full font-bold touch-active">이전화면</button>
+                </div>
+
+                <!-- 옵션 컨텐츠 영역 -->
+                <div class="flex-1 overflow-y-auto p-4 bg-gray-100 animate-pop">
+                    <!-- 선택한 상품 요약 -->
+                    <div class="flex items-center gap-4 bg-white p-4 rounded-3xl shadow-md border-2 border-yellow-200 mb-6">
+                        <img src="${selectedItem.img}" alt="${selectedItem.name}" class="w-24 h-24 object-cover rounded-2xl border border-gray-200">
+                        <div class="flex-1">
+                            <h2 class="text-2xl font-black text-gray-800 leading-tight">${selectedItem.name}</h2>
+                            <p class="text-xl font-bold text-red-600 mt-1">기본 ${formatPrice(selectedItem.price)}</p>
+                        </div>
+                    </div>
+
+                    ${tempHTML}
+                    ${sizeHTML}
+                    ${shotHTML}
+                    ${whipHTML}
+                    
+                    <div class="h-10"></div>
+                </div>
+
+                <!-- 하단 담기 버튼 -->
+                <div class="bg-white p-4 shadow-[0_-5px_15px_rgba(0,0,0,0.1)] z-20 flex-shrink-0">
+                    <div class="flex justify-between items-center mb-3 px-2">
+                        <span class="text-lg font-bold text-gray-600">추가 금액 포함:</span>
+                        <span class="text-2xl font-black text-red-600">${formatPrice(tempPrice)}</span>
+                    </div>
+                    <button onclick="confirmOptions()" class="w-full py-4 rounded-2xl text-xl font-black shadow-lg flex justify-center items-center gap-2 touch-active mega-yellow mega-brown-text">
+                        선택 완료 (장바구니 담기)
+                    </button>
+                </div>
+            `;
+        }
+
+        function renderPaymentMethodScreen() {
+            appContainer.innerHTML = `
+                <div class="flex flex-col h-full bg-gray-50">
+                    <div class="mega-brown text-white p-4 flex justify-between items-center shadow-md">
+                        <div class="font-black text-xl mega-yellow-text">결제수단 선택</div>
+                        <button onclick="changeScreen('menu')" class="bg-white mega-brown-text px-4 py-2 rounded-full font-bold touch-active">이전으로</button>
+                    </div>
+
+                    <div class="flex-1 p-6 flex flex-col justify-center gap-6 animate-pop">
+                        <div class="text-center mb-6">
+                            <h2 class="text-3xl font-black text-gray-800 mb-2">어떻게 결제하시겠어요?</h2>
+                            <p class="text-xl font-bold text-red-600">결제하실 금액: ${formatPrice(getTotalPrice())}</p>
+                        </div>
+
+                        <button onclick="changeScreen('processing')" class="touch-active bg-white border-4 border-gray-200 p-8 rounded-3xl shadow-lg flex flex-col items-center justify-center gap-4 hover:border-yellow-400">
+                            <div class="text-6xl">💳</div>
+                            <span class="text-3xl font-black mega-brown-text">신용카드 / 체크카드</span>
+                            <span class="text-lg font-bold text-gray-500">카드를 꽂아서 결제합니다</span>
+                        </button>
+
+                        <button onclick="changeScreen('processing')" class="touch-active bg-white border-4 border-gray-200 p-8 rounded-3xl shadow-lg flex flex-col items-center justify-center gap-4 hover:border-yellow-400">
+                            <div class="text-6xl">📱</div>
+                            <span class="text-3xl font-black mega-brown-text">모바일 쿠폰 (바코드)</span>
+                            <span class="text-lg font-bold text-gray-500">스마트폰 화면을 찍어서 결제합니다</span>
+                        </button>
+                    </div>
+                </div>
+            `;
+        }
+
+        function renderProcessingScreen() {
+            appContainer.innerHTML = `
+                <div class="flex flex-col h-full bg-white justify-center items-center p-8 text-center">
+                    <div class="animate-bounce text-8xl mb-8">💳</div>
+                    <h2 class="text-3xl font-black text-gray-800 mb-4 leading-tight">
+                        신용카드를 그림과 같이<br>
+                        <span class="text-red-600 text-4xl">끝까지 꽂아주세요</span>
+                    </h2>
+                    <p class="text-xl font-bold text-gray-500 mb-12">결제가 완료될 때까지 카드를 빼지 마세요.</p>
+                    
+                    <div class="w-full bg-gray-200 rounded-full h-6 mb-4 overflow-hidden relative">
+                        <div class="mega-yellow h-6 rounded-full absolute top-0 left-0" style="width: 0%; transition: width 2s linear;" id="progress-bar"></div>
+                    </div>
+                    <p class="text-lg font-bold text-gray-600">결제 진행중...</p>
+                </div>
+            `;
+
+            // 2초 후 결제 완료 화면으로 자동 이동
+            setTimeout(() => {
+                const bar = document.getElementById('progress-bar');
+                if(bar) bar.style.width = '100%';
+            }, 100);
+
+            setTimeout(() => {
+                state.orderNumber += 1;
+                sendInstructorNotification(); // 강사님께 알림 보내기
+                changeScreen('complete');
+            }, 2500);
+        }
+
+        function renderCompleteScreen() {
+            appContainer.innerHTML = `
+                <div class="flex flex-col h-full bg-gray-50 justify-center items-center p-8 text-center animate-pop">
+                    <div class="text-8xl mb-6">🎉</div>
+                    <h2 class="text-4xl font-black text-blue-600 mb-4">주문 완료!</h2>
+                    <p class="text-2xl font-bold text-gray-800 mb-8">참 잘하셨습니다.</p>
+                    
+                    <div class="bg-white w-full p-8 rounded-3xl shadow-lg border-2 border-gray-100 mb-8">
+                        <p class="text-xl font-bold text-gray-500 mb-2">고객님의 주문번호</p>
+                        <p class="text-7xl font-black text-red-600 mb-4">${state.orderNumber}</p>
+                        <p class="text-lg font-bold text-gray-600">영수증과 카드를 챙겨가세요.</p>
+                    </div>
+
+                    <button onclick="resetApp()" class="touch-active w-full mega-yellow mega-brown-text py-5 rounded-2xl text-2xl font-black shadow-lg">
+                        처음으로 돌아가기
+                    </button>
+                    
+                    <!-- 강사님 확인용 메시지 (실제 환경에서는 숨김 처리) -->
+                    <div class="mt-8 px-4 py-2 bg-green-100 text-green-800 rounded-lg text-sm font-bold border border-green-300">
+                        ✅ 강사님 화면에 알림이 전송되었습니다!
+                    </div>
+                </div>
+            `;
+        }
+
+        function render() {
+            switch (state.screen) {
+                case 'start':
+                    renderStartScreen();
+                    break;
+                case 'menu':
+                    renderMenuScreen();
+                    break;
+                case 'option':
+                    renderOptionScreen();
+                    break;
+                case 'payment_method':
+                    renderPaymentMethodScreen();
+                    break;
+                case 'processing':
+                    renderProcessingScreen();
+                    break;
+                case 'complete':
+                    renderCompleteScreen();
+                    break;
+            }
+        }
+
+        // 초기 화면 렌더링
+        window.onload = () => {
+            render();
+        };
+
+    </script>
+</body>
+</html>
