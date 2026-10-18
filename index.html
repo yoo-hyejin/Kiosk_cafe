@@ -63,7 +63,7 @@
 
         // 이미지 생성 헬퍼 함수 (외부 링크 대신 안전한 내장 이미지 생성)
         function getImgUri(bg, fg, emoji, text) {
-            const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="200" height="200" viewBox="0 0 200 200"><rect width="200" height="200" fill="${bg}"/><text x="100" y="85" font-size="70" text-anchor="middle" dominant-baseline="middle">${emoji}</text><text x="100" y="160" font-size="26" fill="${fg}" text-anchor="middle" font-family="sans-serif" font-weight="bold">${text}</text></svg>`;
+            const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="200" height="200" viewBox="0 0 200 200"><rect width="200" height="200" fill="${bg}"/><text x="100" y="105" font-size="90" text-anchor="middle" dominant-baseline="middle">${emoji}</text></svg>`;
             return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
         }
 
@@ -81,7 +81,7 @@
                 { id: 7, name: '딸기 주스', price: 3800, img: getImgUri('#f87171', '#ffffff', '🍓', '딸기주스'), hasTemp: false, fixedTemp: 'ICED', hasSize: true, hasShot: false },
                 { id: 8, name: '고구마라떼', price: 3500, img: getImgUri('#9c27b0', '#ffffff', '🍠', '고구마라떼'), hasTemp: true, hasSize: true, hasShot: false },
             ],
-            '건강차(Tea)': [
+            '건강차': [
                 { id: 9, name: '따뜻한 쌍화차', price: 3500, img: getImgUri('#2c1e16', '#ffffff', '🫖', '쌍화차'), hasTemp: false, fixedTemp: 'HOT', hasSize: false, hasShot: false },
                 { id: 10, name: '달콤한 유자차', price: 3000, img: getImgUri('#facc15', '#000000', '🍋', '유자차'), hasTemp: true, hasSize: false, hasShot: false },
                 { id: 11, name: '복숭아 아이스티', price: 3000, img: getImgUri('#ff9800', '#ffffff', '🍑', '아이스티'), hasTemp: false, fixedTemp: 'ICED', hasSize: true, hasShot: true },
